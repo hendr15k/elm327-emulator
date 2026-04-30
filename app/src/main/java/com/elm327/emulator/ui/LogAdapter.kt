@@ -4,15 +4,16 @@ import android.view.LayoutInflater
 import android.view.ViewGroup
 import androidx.recyclerview.widget.RecyclerView
 import com.elm327.emulator.databinding.ItemLogBinding
+import java.util.concurrent.CopyOnWriteArrayList
 
 class LogAdapter : RecyclerView.Adapter<LogAdapter.LogViewHolder>() {
 
-    private val logMessages = mutableListOf<String>()
+    private val logMessages = CopyOnWriteArrayList<String>()
     private val maxMessages = 100
 
     fun addMessage(message: String) {
         logMessages.add(0, message)
-        if (logMessages.size > maxMessages) {
+        while (logMessages.size > maxMessages) {
             logMessages.removeAt(logMessages.lastIndex)
         }
         notifyItemInserted(0)

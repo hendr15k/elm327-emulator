@@ -168,7 +168,8 @@ class MainActivity : AppCompatActivity() {
 
     private fun hasRequiredPermissions(): Boolean {
         return if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
-            ContextCompat.checkSelfPermission(this, Manifest.permission.BLUETOOTH_CONNECT) == PackageManager.PERMISSION_GRANTED
+            ContextCompat.checkSelfPermission(this, Manifest.permission.BLUETOOTH_CONNECT) == PackageManager.PERMISSION_GRANTED &&
+            ContextCompat.checkSelfPermission(this, Manifest.permission.BLUETOOTH_ADVERTISE) == PackageManager.PERMISSION_GRANTED
         } else {
             true
         }
