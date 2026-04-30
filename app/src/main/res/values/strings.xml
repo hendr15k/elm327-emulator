@@ -1,0 +1,17 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">ELM327 Emulator</string>
+    <string name="status_disconnected">Disconnected</string>
+    <string name="status_listening">Listening…</string>
+    <string name="status_connected">Connected</string>
+    <string name="start_server">Start Server</string>
+    <string name="stop_server">Stop Server</string>
+    <string name="bluetooth_address">BT Address:</string>
+    <string name="log_title">Connection Log</string>
+    <string name="clear_log">Clear Log</string>
+    <string name="notification_channel_name">ELM327 Service</string>
+    <string name="notification_channel_description">Shows when ELM327 server is active</string>
+    <string name="notification_title">ELM327 Emulator Active</string>
+    <string name="notification_text">Tap to open app</string>
+    <string name="grant_permissions">Grant Bluetooth Permissions</string>
+</resources>
