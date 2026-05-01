@@ -6,14 +6,17 @@ import android.app.NotificationManager
 import android.app.PendingIntent
 import android.app.Service
 import android.bluetooth.BluetoothAdapter
+import android.bluetooth.BluetoothDevice
 import android.bluetooth.BluetoothManager
 import android.bluetooth.BluetoothServerSocket
 import android.bluetooth.BluetoothSocket
 import android.content.Context
 import android.content.Intent
+import android.content.IntentFilter
 import android.os.Binder
 import android.os.Build
 import android.os.IBinder
+import android.util.Log
 import androidx.core.app.NotificationCompat
 import com.elm327.emulator.MainActivity
 import com.elm327.emulator.R
@@ -27,9 +30,12 @@ import java.util.UUID
 class Elm327BluetoothService : Service() {
 
     companion object {
+        private const val TAG = "ELM327Service"
         private const val SPP_UUID = "00001101-0000-1000-8000-00805F9B34FB"
         private const val CHANNEL_ID = "elm327_service_channel"
         private const val NOTIFICATION_ID = 1
+        const val DEVICE_NAME = "ELM327"
+        private val ADAPTER_NAME = "ELM327"
     }
 
     private val binder = LocalBinder()
@@ -39,6 +45,7 @@ class Elm327BluetoothService : Service() {
     private var outputStream: OutputStream? = null
     private var isRunning = false
     private var isConnected = false
+    private var pairingReceiver: PairingReceiver? = null
 
     private val serviceScope = CoroutineScope(Dispatchers.IO + SupervisorJob())
     private val parser = Elm327Parser()
@@ -66,6 +73,7 @@ class Elm327BluetoothService : Service() {
     }
 
     override fun onDestroy() {
+        unregisterPairingReceiver()
         stopServer()
         serviceScope.cancel()
         super.onDestroy()
@@ -75,6 +83,8 @@ class Elm327BluetoothService : Service() {
         if (isRunning) return
         isRunning = true
         startForeground(NOTIFICATION_ID, createNotification())
+        registerPairingReceiver()
+        setAdapterName()
         onLogMessage?.invoke("Starting ELM327 server...")
         onConnectionStateChanged?.invoke(false)
         serviceScope.launch { acceptConnections() }
@@ -85,28 +95,79 @@ class Elm327BluetoothService : Service() {
         isConnected = false
         onConnectionStateChanged?.invoke(false)
         closeConnection()
-        serverSocket?.close()
+        try {
+            serverSocket?.close()
+        } catch (e: Exception) {
+            Log.e(TAG, "Error closing server socket: ${e.message}")
+        }
         serverSocket = null
         stopForeground(STOP_FOREGROUND_REMOVE)
         onLogMessage?.invoke("Server stopped")
+    }
+
+    private fun registerPairingReceiver() {
+        if (pairingReceiver != null) return
+        try {
+            pairingReceiver = PairingReceiver()
+            val filter = IntentFilter().apply {
+                addAction(BluetoothDevice.ACTION_PAIRING_REQUEST)
+                addAction(BluetoothDevice.ACTION_BOND_STATE_CHANGED)
+                priority = IntentFilter.SYSTEM_HIGH_PRIORITY
+            }
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+                registerReceiver(pairingReceiver, filter, RECEIVER_NOT_EXPORTED)
+            } else {
+                registerReceiver(pairingReceiver, filter)
+            }
+            Log.d(TAG, "Pairing receiver registered")
+        } catch (e: Exception) {
+            Log.e(TAG, "Failed to register pairing receiver: ${e.message}")
+        }
+    }
+
+    private fun unregisterPairingReceiver() {
+        try {
+            pairingReceiver?.let {
+                unregisterReceiver(it)
+                pairingReceiver = null
+            }
+        } catch (e: Exception) {
+            Log.e(TAG, "Failed to unregister pairing receiver: ${e.message}")
+        }
+    }
+
+    private fun setAdapterName() {
+        try {
+            val bluetoothManager = getSystemService(Context.BLUETOOTH_SERVICE) as BluetoothManager
+            val adapter = bluetoothManager.adapter ?: return
+            if (adapter.isEnabled && hasBluetoothConnectPermission()) {
+                adapter.name = ADAPTER_NAME
+                Log.d(TAG, "Adapter name set to: $ADAPTER_NAME")
+            }
+        } catch (e: SecurityException) {
+            Log.e(TAG, "No permission to set adapter name: ${e.message}")
+        } catch (e: Exception) {
+            Log.e(TAG, "Failed to set adapter name: ${e.message}")
+        }
     }
 
     private suspend fun acceptConnections() {
         val bluetoothManager = getSystemService(Context.BLUETOOTH_SERVICE) as BluetoothManager
         val bluetoothAdapter: BluetoothAdapter? = bluetoothManager.adapter
 
-        if (bluetoothAdapter == null) {
-            onLogMessage?.invoke("Bluetooth not available")
+        if (bluetoothAdapter == null || !bluetoothAdapter.isEnabled) {
+            onLogMessage?.invoke("Bluetooth not available or disabled")
             stopServer()
             return
         }
 
         try {
             serverSocket = bluetoothAdapter.listenUsingRfcommWithServiceRecord(
-                "ELM327",
+                DEVICE_NAME,
                 UUID.fromString(SPP_UUID)
             )
             onLogMessage?.invoke("Server listening on RFCOMM...")
+            Log.d(TAG, "Server listening on RFCOMM, name=$DEVICE_NAME, uuid=$SPP_UUID")
 
             while (isRunning) {
                 try {
@@ -119,11 +180,17 @@ class Elm327BluetoothService : Service() {
                 } catch (e: IOException) {
                     if (isRunning) {
                         onLogMessage?.invoke("Accept error: ${e.message}")
+                        Log.e(TAG, "Accept error: ${e.message}")
                     }
                 }
             }
+        } catch (e: SecurityException) {
+            onLogMessage?.invoke("Bluetooth permission denied: ${e.message}")
+            Log.e(TAG, "Bluetooth permission denied: ${e.message}")
+            stopServer()
         } catch (e: IOException) {
             onLogMessage?.invoke("Server error: ${e.message}")
+            Log.e(TAG, "Server error: ${e.message}")
             stopServer()
         }
     }
@@ -136,8 +203,16 @@ class Elm327BluetoothService : Service() {
         try {
             inputStream = clientSocket?.inputStream
             outputStream = clientSocket?.outputStream
-            val deviceName = clientSocket?.remoteDevice?.name ?: "Unknown"
-            onLogMessage?.invoke("Connected to: $deviceName")
+            val deviceName = clientSocket?.remoteDevice?.let {
+                try { it.name } catch (e: SecurityException) { "Unknown" }
+            } ?: "Unknown"
+            val deviceAddress = clientSocket?.remoteDevice?.let {
+                try { it.address } catch (e: SecurityException) { "Unknown" }
+            } ?: "Unknown"
+            onLogMessage?.invoke("Connected to: $deviceName ($deviceAddress)")
+            Log.d(TAG, "Client connected: $deviceName ($deviceAddress)")
+
+            sendInitPrompt()
 
             val buffer = ByteArray(1024)
             var bytesRead: Int
@@ -148,18 +223,22 @@ class Elm327BluetoothService : Service() {
                         bytesRead = inputStream?.read(buffer) ?: 0
                     }
                     if (bytesRead > 0) {
-                        val command = String(buffer, 0, bytesRead)
-                        processCommand(command)
+                        val raw = String(buffer, 0, bytesRead)
+                        processCommand(raw)
+                    } else if (bytesRead == -1) {
+                        break
                     }
                 } catch (e: IOException) {
                     if (isRunning) {
                         onLogMessage?.invoke("Read error: ${e.message}")
+                        Log.e(TAG, "Read error: ${e.message}")
                     }
                     break
                 }
             }
         } catch (e: IOException) {
             onLogMessage?.invoke("Connection error: ${e.message}")
+            Log.e(TAG, "Connection error: ${e.message}")
         } finally {
             closeConnection()
             isConnected = false
@@ -168,35 +247,68 @@ class Elm327BluetoothService : Service() {
         }
     }
 
-    private suspend fun processCommand(command: String) {
-        if (parser.isEchoEnabled()) {
-            send(command.trim())
+    private suspend fun sendInitPrompt() {
+        withContext(Dispatchers.IO) {
+            try {
+                val prompt = byteArrayOf(0x3E, 0x20, 0x3E)
+                outputStream?.write(prompt)
+                outputStream?.flush()
+            } catch (e: IOException) {
+                Log.e(TAG, "Failed to send init prompt: ${e.message}")
+            }
         }
-
-        val responses = parser.parse(command)
-        for (response in responses) {
-            send(response)
-            onLogMessage?.invoke("RX: ${response.replace("\r", "<CR>")}")
-        }
-        send("\r") // Prompt
     }
 
-    private suspend fun send(data: String) {
+    private suspend fun processCommand(command: String) {
+        val trimmed = command.trim()
+        if (trimmed.isEmpty()) {
+            sendPrompt()
+            return
+        }
+
+        Log.d(TAG, "RECV: $trimmed")
+
+        if (parser.isEchoEnabled()) {
+            sendRaw(trimmed)
+        }
+
+        val responses = parser.parse(trimmed)
+        for (response in responses) {
+            sendRaw(response)
+            onLogMessage?.invoke("RX: $response")
+        }
+        sendPrompt()
+    }
+
+    private fun sendPrompt() {
+        try {
+            outputStream?.write("\r>".toByteArray())
+            outputStream?.flush()
+        } catch (e: IOException) {
+            Log.e(TAG, "Failed to send prompt: ${e.message}")
+        }
+    }
+
+    private fun sendRaw(data: String) {
         try {
             outputStream?.write(data.toByteArray())
             outputStream?.flush()
-            onLogMessage?.invoke("TX: ${data.replace("\r", "<CR>")}")
+            Log.d(TAG, "SEND: $data")
         } catch (e: IOException) {
-            onLogMessage?.invoke("Write error: ${e.message}")
+            Log.e(TAG, "Failed to send: ${e.message}")
         }
     }
 
     private fun closeConnection() {
         try {
             inputStream?.close()
+        } catch (e: Exception) { }
+        try {
             outputStream?.close()
+        } catch (e: Exception) { }
+        try {
             clientSocket?.close()
-        } catch (e: IOException) { }
+        } catch (e: Exception) { }
         inputStream = null
         outputStream = null
         clientSocket = null
@@ -205,7 +317,8 @@ class Elm327BluetoothService : Service() {
     fun getLocalBluetoothAddress(): String {
         return try {
             val bluetoothManager = getSystemService(Context.BLUETOOTH_SERVICE) as BluetoothManager
-            bluetoothManager.adapter?.address ?: "00:00:00:00:00:00"
+            val address = bluetoothManager.adapter?.address
+            if (address == "02:00:00:00:00:00") "N/A (Emulator)" else address ?: "N/A"
         } catch (e: SecurityException) {
             "N/A"
         }
@@ -213,6 +326,15 @@ class Elm327BluetoothService : Service() {
 
     fun isServerRunning() = isRunning
     fun isClientConnected() = isConnected
+
+    private fun hasBluetoothConnectPermission(): Boolean {
+        return if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+            checkSelfPermission(android.Manifest.permission.BLUETOOTH_CONNECT) ==
+                android.content.pm.PackageManager.PERMISSION_GRANTED
+        } else {
+            true
+        }
+    }
 
     private fun createNotificationChannel() {
         val channel = NotificationChannel(
@@ -235,9 +357,9 @@ class Elm327BluetoothService : Service() {
         )
 
         return NotificationCompat.Builder(this, CHANNEL_ID)
-            .setContentTitle(getString(R.string.notification_title))
-            .setContentText(getString(R.string.notification_text))
-            .setSmallIcon(android.R.drawable.ic_menu_sort_by_size)
+            .setContentTitle("ELM327 Emulator")
+            .setContentText("Bluetooth server is running")
+            .setSmallIcon(android.R.drawable.stat_sys_data_bluetooth)
             .setContentIntent(pendingIntent)
             .setOngoing(true)
             .build()
