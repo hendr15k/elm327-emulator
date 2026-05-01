@@ -9,18 +9,24 @@ import android.content.pm.PackageManager
 import android.os.Build
 import android.os.Bundle
 import android.os.IBinder
+import android.view.View
+import android.widget.Toast
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.appcompat.app.AppCompatActivity
 import androidx.core.content.ContextCompat
 import androidx.recyclerview.widget.LinearLayoutManager
 import com.elm327.emulator.bluetooth.Elm327BluetoothService
+import com.elm327.emulator.bluetooth.Elm327LocalTest
 import com.elm327.emulator.databinding.ActivityMainBinding
 import com.elm327.emulator.ui.LogAdapter
+import com.elm327.emulator.ui.TestResultAdapter
+import kotlinx.coroutines.*
 
 class MainActivity : AppCompatActivity() {
 
     private lateinit var binding: ActivityMainBinding
     private lateinit var logAdapter: LogAdapter
+    private lateinit var testResultAdapter: TestResultAdapter
 
     private var bluetoothService: Elm327BluetoothService? = null
     private var serviceBound = false
@@ -82,6 +88,12 @@ class MainActivity : AppCompatActivity() {
             adapter = logAdapter
         }
 
+        testResultAdapter = TestResultAdapter()
+        binding.testResultsRecycler.apply {
+            layoutManager = LinearLayoutManager(this@MainActivity)
+            adapter = testResultAdapter
+        }
+
         binding.startStopButton.setOnClickListener {
             if (bluetoothService?.isServerRunning() == true) {
                 stopBluetoothService()
@@ -96,6 +108,32 @@ class MainActivity : AppCompatActivity() {
 
         binding.clearLogButton.setOnClickListener {
             logAdapter.clear()
+        }
+
+        binding.testButton.setOnClickListener {
+            runBtTests()
+        }
+    }
+
+    private fun runBtTests() {
+        binding.testButton.isEnabled = false
+        binding.testButton.text = "Running tests..."
+        binding.testResultsTitle.visibility = View.VISIBLE
+        binding.testResultsRecycler.visibility = View.VISIBLE
+
+        CoroutineScope(Dispatchers.Main).launch {
+            val results = withContext(Dispatchers.IO) {
+                Elm327LocalTest().runAllTests(this@MainActivity)
+            }
+            testResultAdapter.setResults(results)
+            binding.testButton.isEnabled = true
+            binding.testButton.text = "Run BT Verification Tests"
+
+            val passed = results.count { it.passed }
+            val total = results.size
+            val summary = "$passed/$total tests passed"
+            Toast.makeText(this@MainActivity, summary, Toast.LENGTH_LONG).show()
+            logAdapter.addMessage("TESTS: $summary")
         }
     }
 

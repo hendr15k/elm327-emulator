@@ -85,6 +85,7 @@ class Elm327BluetoothService : Service() {
         startForeground(NOTIFICATION_ID, createNotification())
         registerPairingReceiver()
         setAdapterName()
+        setDiscoverableMode()
         onLogMessage?.invoke("Starting ELM327 server...")
         onConnectionStateChanged?.invoke(false)
         serviceScope.launch { acceptConnections() }
@@ -148,6 +149,30 @@ class Elm327BluetoothService : Service() {
             Log.e(TAG, "No permission to set adapter name: ${e.message}")
         } catch (e: Exception) {
             Log.e(TAG, "Failed to set adapter name: ${e.message}")
+        }
+    }
+
+    private fun setDiscoverableMode() {
+        try {
+            val bluetoothManager = getSystemService(Context.BLUETOOTH_SERVICE) as BluetoothManager
+            val adapter = bluetoothManager.adapter ?: return
+            if (adapter.isEnabled && hasBluetoothConnectPermission()) {
+                val intent = Intent(BluetoothAdapter.ACTION_REQUEST_DISCOVERABLE).apply {
+                    addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                    putExtra(BluetoothAdapter.EXTRA_DISCOVERABLE_DURATION, 300)
+                }
+                try {
+                    startActivity(intent)
+                    Log.d(TAG, "Discoverability intent sent")
+                } catch (e: Exception) {
+                    Log.d(TAG, "Could not start discoverability activity: ${e.message}")
+                }
+                Log.d(TAG, "Current scan mode: ${adapter.scanMode}")
+            }
+        } catch (e: SecurityException) {
+            Log.e(TAG, "No permission for discoverable: ${e.message}")
+        } catch (e: Exception) {
+            Log.e(TAG, "Failed to set discoverable: ${e.message}")
         }
     }
 

@@ -77,6 +77,16 @@
             android:textSize="16sp"
             app:cornerRadius="8dp" />
 
+        <com.google.android.material.button.MaterialButton
+            android:id="@+id/testButton"
+            style="@style/Widget.Material3.Button.TonalButton"
+            android:layout_width="match_parent"
+            android:layout_height="48dp"
+            android:text="Run BT Verification Tests"
+            android:textSize="14sp"
+            android:layout_marginTop="8dp"
+            app:cornerRadius="8dp" />
+
         <LinearLayout
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
@@ -109,6 +119,26 @@
             android:layout_height="300dp"
             android:background="@color/surface"
             android:padding="8dp" />
+
+        <TextView
+            android:id="@+id/testResultsTitle"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:text="BT Verification Tests"
+            android:textColor="@color/text_primary"
+            android:textSize="16sp"
+            android:textStyle="bold"
+            android:layout_marginTop="16dp"
+            android:layout_marginBottom="8dp"
+            android:visibility="gone" />
+
+        <androidx.recyclerview.widget.RecyclerView
+            android:id="@+id/testResultsRecycler"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:background="@color/surface"
+            android:padding="8dp"
+            android:visibility="gone" />
 
     </LinearLayout>
 

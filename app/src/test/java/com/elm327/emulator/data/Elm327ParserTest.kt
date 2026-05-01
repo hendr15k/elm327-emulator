@@ -349,11 +349,22 @@ class Elm327ParserTest {
     }
 
     @Test
-    fun testInitializeResetsState() {
-        parser.parse("010C")
+    fun testHeadersToggle() {
+        val parser = Elm327Parser()
         parser.reset()
-        val result = parser.parse("010C")
-        assertNotNull(result)
+        parser.parse("ATH1")
+        val on = parser.isHeadersEnabled()
+        parser.parse("ATH0")
+        val off = !parser.isHeadersEnabled()
+
+        parser.parse("ATH0")
+        val noHeaders = parser.parse("010C")
+        parser.parse("ATH1")
+        val withHeaders = parser.parse("010C")
+
+        assertTrue("Headers ON: ${withHeaders[0]}", withHeaders[0].contains("41 0C"))
+        assertTrue("No headers: ${noHeaders[0]}", noHeaders[0].startsWith("410C") && !noHeaders[0].contains(" 0C"))
+        assertTrue("on=$on off=$off", on && off)
     }
 
     @Test
