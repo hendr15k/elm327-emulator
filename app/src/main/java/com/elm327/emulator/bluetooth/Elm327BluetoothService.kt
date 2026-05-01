@@ -76,6 +76,7 @@ class Elm327BluetoothService : Service() {
         isRunning = true
         startForeground(NOTIFICATION_ID, createNotification())
         onLogMessage?.invoke("Starting ELM327 server...")
+        onConnectionStateChanged?.invoke(false)
         serviceScope.launch { acceptConnections() }
     }
 
@@ -202,8 +203,12 @@ class Elm327BluetoothService : Service() {
     }
 
     fun getLocalBluetoothAddress(): String {
-        val bluetoothManager = getSystemService(Context.BLUETOOTH_SERVICE) as BluetoothManager
-        return bluetoothManager.adapter?.address ?: "00:00:00:00:00:00"
+        return try {
+            val bluetoothManager = getSystemService(Context.BLUETOOTH_SERVICE) as BluetoothManager
+            bluetoothManager.adapter?.address ?: "00:00:00:00:00:00"
+        } catch (e: SecurityException) {
+            "N/A"
+        }
     }
 
     fun isServerRunning() = isRunning

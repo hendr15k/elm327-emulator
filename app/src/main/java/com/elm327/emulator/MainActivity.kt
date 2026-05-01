@@ -112,7 +112,11 @@ class MainActivity : AppCompatActivity() {
 
     private fun updateUI() {
         bluetoothService?.let { service ->
-            binding.btAddressText.text = service.getLocalBluetoothAddress().uppercase()
+            if (hasRequiredPermissions()) {
+                binding.btAddressText.text = service.getLocalBluetoothAddress().uppercase()
+            } else {
+                binding.btAddressText.text = "N/A"
+            }
             updateConnectionStatus(service.isClientConnected())
             binding.startStopButton.text = if (service.isServerRunning()) {
                 getString(R.string.stop_server)

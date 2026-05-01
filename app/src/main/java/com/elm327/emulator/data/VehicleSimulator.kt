@@ -54,29 +54,35 @@ object VehicleSimulator {
 
     fun getMode01Response(pid: String): String? {
         return when (pid.uppercase()) {
+            "00" -> "BE 3E A8 13"
+            "01" -> "00 00 00 00"
             "04" -> calculateEngineLoad()
             "05" -> coolantTemp.toString()
-            "06" -> "00" // Short term fuel trim bank 1
-            "07" -> "00" // Long term fuel trim bank 1
+            "06" -> "00"
+            "07" -> "00"
             "0B" -> ((throttlePosition * 255 / 100).toInt()).toString()
             "0C" -> calculateRpm()
             "0D" -> vehicleSpeed.toString()
-            "0E" -> "00" // Timing advance
+            "0E" -> "00"
             "0F" -> ((intakeTemp + 40) * (255.0 / 510.0)).toInt().toString()
             "10" -> calculateMaf()
             "11" -> ((throttlePosition * 255 / 100).toInt()).toString()
-            "14" -> "00 00" // O2 sensor voltage
+            "14" -> "00 00"
             "1F" -> runtime.toString()
+            "20" -> "00 00 00 00"
             "21" -> (runtime / 256).toString() + " " + (runtime % 256).toString()
             "2F" -> ((fuelLevel * 255 / 100).toInt()).toString()
-            "33" -> "00" // Barometric pressure
-            "42" -> "00 00" // Control module voltage
-            "46" -> "00" // Ambient air temp
+            "33" -> "00"
+            "40" -> "00 00 00 00"
+            "42" -> "00 00"
+            "46" -> "00"
             "4D" -> (runtime / 256).toString() + " " + (runtime % 256).toString()
             "4F" -> "00 00 00 00"
-            "51" -> "04" // Fuel type: gasoline
+            "51" -> "04"
             "5C" -> (intakeTemp + 40).toString()
             "5E" -> calculateEnginePower()
+            "60" -> "00 00 00 00"
+            "80" -> "00 00 00 00"
             else -> null
         }
     }

@@ -27,8 +27,14 @@ class Elm327Parser {
             return parseAtCommand(trimmed)
         }
 
-        if (trimmed.length >= 4 && (trimmed.substring(0, 2) == "01" || trimmed.substring(0, 2) == "03" || trimmed.substring(0, 2) == "07")) {
-            return parseObdCommand(trimmed)
+        if (trimmed.length >= 2) {
+            val mode = trimmed.substring(0, 2)
+            if (mode == "01" && trimmed.length >= 4) {
+                return parseObdCommand(trimmed)
+            }
+            if (mode == "03" || mode == "07") {
+                return parseObdCommand(trimmed)
+            }
         }
 
         return listOf("?")
@@ -134,24 +140,6 @@ class Elm327Parser {
             "ATWS" -> {
                 reset()
                 listOf("ELM327 v1.5")
-            }
-            "0100" -> {
-                listOf("41 00 BE 3E A8 13")
-            }
-            "0120" -> {
-                listOf("41 20 00 00 00 00")
-            }
-            "0140" -> {
-                listOf("41 40 00 00 00 00")
-            }
-            "0160" -> {
-                listOf("41 60 00 00 00 00")
-            }
-            "0180" -> {
-                listOf("41 80 00 00 00 00")
-            }
-            "0101" -> {
-                listOf("41 01 00 00 00 00")
             }
             else -> listOf("?")
         }
