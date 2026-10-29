@@ -52,6 +52,14 @@ class MainActivity : AppCompatActivity() {
         val allGranted = permissions.all { it.value }
         if (allGranted) {
             startBluetoothService()
+        } else {
+            val missing = permissions.filterValues { !it }.keys.joinToString(", ")
+            Toast.makeText(
+                this,
+                "Bluetooth permission denied ($missing) - server not started",
+                Toast.LENGTH_LONG
+            ).show()
+            logAdapter.addMessage("PERMISSIONS: denied ($missing)")
         }
     }
 
@@ -122,8 +130,9 @@ class MainActivity : AppCompatActivity() {
         binding.testResultsRecycler.visibility = View.VISIBLE
 
         CoroutineScope(Dispatchers.Main).launch {
+            val serverRunning = bluetoothService?.isServerRunning() == true
             val results = withContext(Dispatchers.IO) {
-                Elm327LocalTest().runAllTests(this@MainActivity)
+                Elm327LocalTest().runAllTests(this@MainActivity, serverRunning)
             }
             testResultAdapter.setResults(results)
             binding.testButton.isEnabled = true

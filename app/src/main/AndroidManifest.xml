@@ -39,14 +39,10 @@
             android:exported="false"
             android:foregroundServiceType="connectedDevice" />
 
-        <receiver
-            android:name=".bluetooth.PairingReceiver"
-            android:exported="true">
-            <intent-filter android:priority="1000">
-                <action android:name="android.bluetooth.device.action.PAIRING_REQUEST" />
-                <action android:name="android.bluetooth.device.action.BOND_STATE_CHANGED" />
-            </intent-filter>
-        </receiver>
+        <!-- No static PairingReceiver here on purpose: the service registers it
+             while the server runs. A manifest receiver plus the runtime one
+             handled every pairing request twice and exported the handler to
+             every other app. -->
 
     </application>
 
