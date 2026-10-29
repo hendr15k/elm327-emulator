@@ -43,12 +43,18 @@ class Elm327BluetoothService : Service() {
     private var clientSocket: BluetoothSocket? = null
     private var inputStream: InputStream? = null
     private var outputStream: OutputStream? = null
+
+    @Volatile
     private var isRunning = false
+
+    @Volatile
     private var isConnected = false
+
     private var pairingReceiver: PairingReceiver? = null
 
     private val serviceScope = CoroutineScope(Dispatchers.IO + SupervisorJob())
     private val parser = Elm327Parser()
+    private val framer = ElmLineFramer()
 
     var onConnectionStateChanged: ((Boolean) -> Unit)? = null
     var onLogMessage: ((String) -> Unit)? = null
@@ -67,9 +73,12 @@ class Elm327BluetoothService : Service() {
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
         when (intent?.action) {
             "START" -> startServer()
-            "STOP" -> stopServer()
+            "STOP" -> {
+                stopServer()
+                stopSelf()
+            }
         }
-        return START_STICKY
+        return START_NOT_STICKY
     }
 
     override fun onDestroy() {
@@ -80,9 +89,13 @@ class Elm327BluetoothService : Service() {
     }
 
     fun startServer() {
+        // Post the notification before the early return: a
+        // startForegroundService() call whose service never calls
+        // startForeground() is killed with a RemoteServiceException, which is
+        // what happened when the button was tapped twice.
+        startForeground(NOTIFICATION_ID, createNotification())
         if (isRunning) return
         isRunning = true
-        startForeground(NOTIFICATION_ID, createNotification())
         registerPairingReceiver()
         setAdapterName()
         setDiscoverableMode()
@@ -96,6 +109,9 @@ class Elm327BluetoothService : Service() {
         isConnected = false
         onConnectionStateChanged?.invoke(false)
         closeConnection()
+        // No framer.reset() here: the framer is owned by the connection
+        // coroutine, which resets it on entry and exit. Touching it from the
+        // main thread would race with feed().
         try {
             serverSocket?.close()
         } catch (e: Exception) {
@@ -167,7 +183,14 @@ class Elm327BluetoothService : Service() {
                 } catch (e: Exception) {
                     Log.d(TAG, "Could not start discoverability activity: ${e.message}")
                 }
-                Log.d(TAG, "Current scan mode: ${adapter.scanMode}")
+                // scanMode needs BLUETOOTH_SCAN, which this app never requests
+                // (it does not scan); reading it unconditionally logged a
+                // misleading "no permission for discoverable" error.
+                if (hasBluetoothScanPermission()) {
+                    Log.d(TAG, "Current scan mode: ${adapter.scanMode}")
+                } else {
+                    Log.d(TAG, "Scan mode not readable without BLUETOOTH_SCAN (not required)")
+                }
             }
         } catch (e: SecurityException) {
             Log.e(TAG, "No permission for discoverable: ${e.message}")
@@ -224,6 +247,7 @@ class Elm327BluetoothService : Service() {
         isConnected = true
         onConnectionStateChanged?.invoke(true)
         parser.reset()
+        framer.reset()
 
         try {
             inputStream = clientSocket?.inputStream
@@ -237,21 +261,15 @@ class Elm327BluetoothService : Service() {
             onLogMessage?.invoke("Connected to: $deviceName ($deviceAddress)")
             Log.d(TAG, "Client connected: $deviceName ($deviceAddress)")
 
-            sendInitPrompt()
+            // A real adapter sends nothing until the client sends a command;
+            // the old "> >" greeting only produced garbage in client logs.
 
             val buffer = ByteArray(1024)
-            var bytesRead: Int
 
             while (isRunning && isConnected) {
-                try {
+                val bytesRead = try {
                     withContext(Dispatchers.IO) {
-                        bytesRead = inputStream?.read(buffer) ?: 0
-                    }
-                    if (bytesRead > 0) {
-                        val raw = String(buffer, 0, bytesRead)
-                        processCommand(raw)
-                    } else if (bytesRead == -1) {
-                        break
+                        inputStream?.read(buffer) ?: -1
                     }
                 } catch (e: IOException) {
                     if (isRunning) {
@@ -260,65 +278,42 @@ class Elm327BluetoothService : Service() {
                     }
                     break
                 }
+
+                if (bytesRead < 0) break
+                if (bytesRead == 0) continue
+
+                val chunk = String(buffer, 0, bytesRead, Charsets.ISO_8859_1).asIterable()
+                for (line in framer.feed(chunk)) {
+                    processCommand(line)
+                }
             }
         } catch (e: IOException) {
             onLogMessage?.invoke("Connection error: ${e.message}")
             Log.e(TAG, "Connection error: ${e.message}")
         } finally {
             closeConnection()
+            framer.reset()
             isConnected = false
             onConnectionStateChanged?.invoke(false)
             onLogMessage?.invoke("Client disconnected")
         }
     }
 
-    private suspend fun sendInitPrompt() {
-        withContext(Dispatchers.IO) {
-            try {
-                val prompt = byteArrayOf(0x3E, 0x20, 0x3E)
-                outputStream?.write(prompt)
-                outputStream?.flush()
-            } catch (e: IOException) {
-                Log.e(TAG, "Failed to send init prompt: ${e.message}")
-            }
-        }
-    }
-
-    private suspend fun processCommand(command: String) {
-        val trimmed = command.trim()
-        if (trimmed.isEmpty()) {
-            sendPrompt()
-            return
-        }
-
-        Log.d(TAG, "RECV: $trimmed")
-
-        if (parser.isEchoEnabled()) {
-            sendRaw(trimmed)
-        }
-
-        val responses = parser.parse(trimmed)
+    private fun processCommand(rawLine: String) {
+        val command = rawLine.trim()
+        val responses = parser.parse(command)
+        Log.d(TAG, "RECV: ${command.ifEmpty { "<CR>" }}")
+        sendRaw(parser.formatReply(rawLine, responses))
         for (response in responses) {
-            sendRaw(response)
             onLogMessage?.invoke("RX: $response")
-        }
-        sendPrompt()
-    }
-
-    private fun sendPrompt() {
-        try {
-            outputStream?.write("\r>".toByteArray())
-            outputStream?.flush()
-        } catch (e: IOException) {
-            Log.e(TAG, "Failed to send prompt: ${e.message}")
         }
     }
 
     private fun sendRaw(data: String) {
         try {
-            outputStream?.write(data.toByteArray())
+            outputStream?.write(data.toByteArray(Charsets.ISO_8859_1))
             outputStream?.flush()
-            Log.d(TAG, "SEND: $data")
+            Log.d(TAG, "SEND: ${data.trim()}")
         } catch (e: IOException) {
             Log.e(TAG, "Failed to send: ${e.message}")
         }
@@ -343,7 +338,7 @@ class Elm327BluetoothService : Service() {
         return try {
             val bluetoothManager = getSystemService(Context.BLUETOOTH_SERVICE) as BluetoothManager
             val address = bluetoothManager.adapter?.address
-            if (address == "02:00:00:00:00:00") "N/A (Emulator)" else address ?: "N/A"
+            if (address == null || address == "02:00:00:00:00:00") "N/A (Emulator)" else address
         } catch (e: SecurityException) {
             "N/A"
         }
@@ -355,6 +350,15 @@ class Elm327BluetoothService : Service() {
     private fun hasBluetoothConnectPermission(): Boolean {
         return if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
             checkSelfPermission(android.Manifest.permission.BLUETOOTH_CONNECT) ==
+                android.content.pm.PackageManager.PERMISSION_GRANTED
+        } else {
+            true
+        }
+    }
+
+    private fun hasBluetoothScanPermission(): Boolean {
+        return if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+            checkSelfPermission(android.Manifest.permission.BLUETOOTH_SCAN) ==
                 android.content.pm.PackageManager.PERMISSION_GRANTED
         } else {
             true

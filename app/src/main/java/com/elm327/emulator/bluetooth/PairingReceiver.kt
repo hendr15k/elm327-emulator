@@ -31,14 +31,15 @@ class PairingReceiver : BroadcastReceiver() {
                     intent.getParcelableExtra(BluetoothDevice.EXTRA_DEVICE)
                 }
                 val variant = intent.getIntExtra(BluetoothDevice.EXTRA_PAIRING_VARIANT, -1)
-                val passkey = intent.getIntExtra(BluetoothDevice.EXTRA_PAIRING_KEY, -1)
                 Log.d(TAG, "Pairing request from: ${device?.name} (${device?.address}), variant: $variant")
 
                 try {
                     when (variant) {
-                        PAIRING_VARIANT_PIN -> {
+                        PAIRING_VARIANT_PIN, PAIRING_VARIANT_PASSKEY -> {
+                            // A passkey request needs the responder to enter a
+                            // key; confirming it instead made pairing fail.
                             device?.setPin(byteArrayOf(0x30, 0x30, 0x30, 0x30))
-                            Log.d(TAG, "PIN set to 0000")
+                            Log.d(TAG, "PIN/passkey set to 0000")
                         }
                         PAIRING_VARIANT_PASSKEY_CONFIRMATION, PAIRING_VARIANT_CONSENT -> {
                             device?.setPairingConfirmation(true)

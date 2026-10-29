@@ -3,6 +3,16 @@ plugins {
     id("org.jetbrains.kotlin.android")
 }
 
+// Stable signing identity. Previous releases were signed with whatever debug
+// keys the CI runner generated, so no two builds could update each other.
+// The key lives outside the repository; pass it in through the environment.
+val signingStore: String? = System.getenv("ELM327_KEYSTORE")
+val signingStorePassword: String? = System.getenv("ELM327_KEYSTORE_PASSWORD")
+val signingAlias: String? = System.getenv("ELM327_KEY_ALIAS")
+val signingKeyPassword: String? = System.getenv("ELM327_KEY_PASSWORD")
+val hasSigningKey = listOf(signingStore, signingStorePassword, signingAlias, signingKeyPassword)
+    .all { !it.isNullOrBlank() && File(signingStore!!).exists() }
+
 android {
     namespace = "com.elm327.emulator"
     compileSdk = 34
@@ -11,17 +21,32 @@ android {
         applicationId = "com.elm327.emulator"
         minSdk = 26
         targetSdk = 34
-        versionCode = 1
-        versionName = "1.0"
+        versionCode = 2
+        versionName = "1.2.0"
 
         vectorDrawables {
             useSupportLibrary = true
         }
     }
 
+    signingConfigs {
+        if (hasSigningKey) {
+            create("release") {
+                storeFile = File(signingStore!!)
+                storePassword = signingStorePassword
+                keyAlias = signingAlias
+                keyPassword = signingKeyPassword
+            }
+        }
+    }
+
     buildTypes {
+        debug {
+            if (hasSigningKey) signingConfig = signingConfigs.getByName("release")
+        }
         release {
             isMinifyEnabled = false
+            if (hasSigningKey) signingConfig = signingConfigs.getByName("release")
             proguardFiles(
                 getDefaultProguardFile("proguard-android-optimize.txt"),
                 "proguard-rules.pro"

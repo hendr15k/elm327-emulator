@@ -19,3 +19,11 @@ build/
 
 # Kotlin
 *.class
+
+# Signing material must never be committed
+*.jks
+*.keystore
+*.p12
+*.b64
+credentials.env
+signing/
