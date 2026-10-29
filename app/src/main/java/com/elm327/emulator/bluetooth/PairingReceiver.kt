@@ -18,6 +18,9 @@ class PairingReceiver : BroadcastReceiver() {
         private const val PAIRING_VARIANT_CONSENT = 3
         private const val PAIRING_VARIANT_PASSKEY_DISPLAY = 4
         private const val PAIRING_VARIANT_OOB_CONSENT = 5
+
+        private val PIN_0000 = byteArrayOf(0x30, 0x30, 0x30, 0x30)
+        private val PASSKEY_000000 = byteArrayOf(0x30, 0x30, 0x30, 0x30, 0x30, 0x30)
     }
 
     @SuppressLint("MissingPermission")
@@ -35,11 +38,16 @@ class PairingReceiver : BroadcastReceiver() {
 
                 try {
                     when (variant) {
-                        PAIRING_VARIANT_PIN, PAIRING_VARIANT_PASSKEY -> {
-                            // A passkey request needs the responder to enter a
-                            // key; confirming it instead made pairing fail.
-                            device?.setPin(byteArrayOf(0x30, 0x30, 0x30, 0x30))
-                            Log.d(TAG, "PIN/passkey set to 0000")
+                        PAIRING_VARIANT_PIN -> {
+                            // SPP adapters pair with the classic 4-digit PIN.
+                            device?.setPin(PIN_0000)
+                            Log.d(TAG, "PIN set to 0000")
+                        }
+                        PAIRING_VARIANT_PASSKEY -> {
+                            // A passkey is a 6-digit value; a 4-byte PIN is not
+                            // a valid passkey and was rejected by the stack.
+                            device?.setPin(PASSKEY_000000)
+                            Log.d(TAG, "Passkey set to 000000")
                         }
                         PAIRING_VARIANT_PASSKEY_CONFIRMATION, PAIRING_VARIANT_CONSENT -> {
                             device?.setPairingConfirmation(true)

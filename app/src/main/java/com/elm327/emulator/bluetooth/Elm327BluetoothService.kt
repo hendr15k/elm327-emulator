@@ -206,6 +206,9 @@ class Elm327BluetoothService : Service() {
         if (bluetoothAdapter == null || !bluetoothAdapter.isEnabled) {
             onLogMessage?.invoke("Bluetooth not available or disabled")
             stopServer()
+            // Without this the started service lingers without a notification
+            // and without work when the start-up path fails.
+            stopSelf()
             return
         }
 
@@ -236,10 +239,12 @@ class Elm327BluetoothService : Service() {
             onLogMessage?.invoke("Bluetooth permission denied: ${e.message}")
             Log.e(TAG, "Bluetooth permission denied: ${e.message}")
             stopServer()
+            stopSelf()
         } catch (e: IOException) {
             onLogMessage?.invoke("Server error: ${e.message}")
             Log.e(TAG, "Server error: ${e.message}")
             stopServer()
+            stopSelf()
         }
     }
 
