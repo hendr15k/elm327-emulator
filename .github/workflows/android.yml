@@ -20,11 +20,24 @@ jobs:
           distribution: 'temurin'
           java-version: '17'
 
-      - name: Setup Android SDK
-        uses: android-actions/setup-android@v3
+      # android-actions/setup-android fails on current runner images because it
+      # tries to install the removed "tools" package. The runner ships an SDK,
+      # so only locate it and fail loudly when there is none.
+      - name: Locate Android SDK
+        run: |
+          for candidate in "$ANDROID_HOME" "$ANDROID_SDK_ROOT" /usr/local/lib/android/sdk "$HOME/Android/Sdk"; do
+            if [ -n "$candidate" ] && [ -d "$candidate/platforms" ]; then
+              echo "ANDROID_HOME=$candidate" >> "$GITHUB_ENV"
+              echo "ANDROID_SDK_ROOT=$candidate" >> "$GITHUB_ENV"
+              echo "Using SDK at $candidate"
+              exit 0
+            fi
+          done
+          echo "No Android SDK found on this runner" >&2
+          exit 1
 
       - name: Cache Gradle packages
-        uses: actions/cache@v3
+        uses: actions/cache@v4
         with:
           path: |
             ~/.gradle/caches
